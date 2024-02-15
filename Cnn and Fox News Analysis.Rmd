@@ -1,0 +1,382 @@
+---
+title: "CNN and FOX News Analysis"
+author: "Estelle Pan"
+date: "2024-02-15"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+# Text Preprocessing & Descriptive Analysis 
+install.packages("quanteda")
+install.packages("tokenizers")
+install.packages("quanteda.textplots")
+library(tokenizers)
+library(quanteda)
+library(quanteda.textplots)
+
+
+# Web Scrapping
+install.packages("tm.plugin.factiva")
+install.packages("tm")
+install.packages("rvest")
+install.packages("tidyverse")
+install.packages("jsonlite")
+install.packages("quanteda.textstats") 
+
+library(tm.plugin.factiva) 
+library(tm) 
+library(rvest)
+library(tidyverse)
+library(jsonlite)
+library(quanteda.textstats)
+```
+
+
+```{r}
+# clean environment 
+rm(list=ls())
+
+## Set working directory
+setwd("/Users/minpan/Desktop/Text as Data")
+
+## Read dataset
+base::load("cnn_fox_corpus.rdata")
+```
+
+```{r}
+head(cnn_fox_corpus, n=10)
+length(cnn_fox_corpus)
+```
+
+#Text Preprocessing
+
+The CNN and Fox News corpus (cnn_fox_corpus.rdata) contains the transcripts, as well as
+metadata, for news segments that were aired on CNN and Fox News between 1/7/2021{1/7/2022
+that included the keywords January 6 and Capitol.
+
+#### Tokenization
+```{r}
+# Tokenize to sentences
+cnn_fox_sentences <- tokens(cnn_fox_corpus, what = "sentence")
+# How many sentences in article number 4
+length(cnn_fox_sentences[[4]])
+summary(cnn_fox_sentences[4])
+# second sentence in article number 600
+cnn_fox_sentences[[600]][2]
+```
+
+#### Document Feature Matrices
+```{r}
+#Pre-processing 
+## Tokenize to individual words 
+news_tokens = tokens(cnn_fox_corpus)
+class(news_tokens)
+## Remove punctuation, numbers, urls, and symbols:
+news_tokens_cleaned = tokens(x=news_tokens, remove_numbers = TRUE, 
+                             remove_punct = TRUE, remove_url = TRUE,
+                              remove_symbols = TRUE)
+## Lowercase all letters:
+news_tokens_cleaned_lc = tokens_tolower(news_tokens_cleaned)
+
+## Stem
+news_tokens_cleaned_stemmed = tokens_wordstem(news_tokens_cleaned_lc, language = "en")
+
+## Remove stop words
+news_tokens_cleaned_stemmed_nostop = tokens_select(news_tokens_cleaned_stemmed , pattern = stopwords('en'), selection = 'remove')
+```
+
+
+```{r}
+#generate different DFMs 
+
+## DTM (DFM) in which the words are pre-processed:
+news_dfm = dfm(news_tokens_cleaned_stemmed_nostop)
+dim(news_dfm)
+
+##word cloud
+textplot_wordcloud(news_dfm, min_count = 10, random_order = FALSE,
+                   rotation = .25,color = RColorBrewer::brewer.pal(8, "Dark2"))
+
+```
+
+```{r}
+## Let's generate DTM (DFM) with very frequent terms removal. 
+news_dfm_trimmed = dfm_trim(news_dfm,max_termfreq = 100)
+dim(news_dfm_trimmed)
+news_dfm_trimmed
+## word cloud can not plot here, so save as png
+png("wordcloud_large.png", width = 2000, height = 1200, res = 150)
+textplot_wordcloud(news_dfm_trimmed, min_count = 20, random_order = FALSE,
+                   rotation = .25,color = RColorBrewer::brewer.pal(8, "Dark2"))
+```
+
+
+```{r}
+## Creating a DTM with bigrams
+
+## Create a tokens object with bigrams as features:
+news_bigrams = tokens_select(news_tokens_cleaned_stemmed_nostop, pattern = "@*", selection = "remove") %>%
+  tokens_ngrams(n=2)
+
+## Create a DFM with bigrams:
+news_dfm_bigram = dfm(news_bigrams)
+
+## How many features do we have now?
+news_dfm_bigram
+
+## The function topfeatures() shows the most frequent features in the DTM.
+## What are the top 20 features?
+topfeatures(news_dfm_bigram, 20)
+
+## Create a wordcloud
+textplot_wordcloud(news_dfm_bigram, random_order = FALSE,
+                   rotation = .25, color = RColorBrewer::brewer.pal(8, "Dark2"))
+```
+
+```{r}
+## Creating a DTM with TF-IDF
+tfidf_dfm <- dfm_tfidf(news_dfm)
+
+# Sum the TF-IDF scores across all documents
+tfidf_sum <- colSums(tfidf_dfm)
+
+# Sort the terms by their summed TF-IDF scores in descending order
+tfidf_sorted <- sort(tfidf_sum, decreasing = TRUE)
+
+textplot_wordcloud(tfidf_dfm, min_count = 10, random_order = FALSE,
+                   rotation = .25,color = RColorBrewer::brewer.pal(8, "Dark2"))
+# visualize the top terms based on their TF-IDF scores for the top 100 terms
+top_terms <- names(tfidf_sorted)[1:100]
+top_tfidf <- tfidf_sorted[1:100]
+```
+
+#Descriptive Analysis 
+##Co-occurrences 
+```{r}
+# Subset DFM for CNN
+cnn_dfm <- dfm_subset(news_dfm, Source == "CNN")
+
+# Subset DFM for Fox News
+fox_dfm <- dfm_subset(news_dfm, Source == "FOX")
+
+dim(cnn_dfm)
+dim(fox_dfm)
+```
+
+
+```{r}
+# For DTM with TF-IDF
+cnn_tfidf_dfm <- dfm_subset(tfidf_dfm, Source == "CNN")
+fox_tfidf_dfm <- dfm_subset(tfidf_dfm, Source == "FOX")
+dim(cnn_tfidf_dfm)
+dim(fox_tfidf_dfm)
+```
+
+```{r}
+# Create a feature co-occurrence matrix (FCM):
+cnn_tfidf_dfm_fcm = fcm(cnn_tfidf_dfm, context = "document", count="frequency")
+fox_tfidf_dfm_fcm = fcm(fox_tfidf_dfm, context = "document", count="frequency")
+## What are the dimensions of our FCM?
+dim(cnn_tfidf_dfm_fcm)
+dim(fox_tfidf_dfm_fcm)
+head(fox_tfidf_dfm_fcm)
+```
+
+## Visualize the co-occurrences:
+```{r}
+# First, get the most frequently occurring words (we set it to 30 here, just for fun)
+features = names(topfeatures(fox_tfidf_dfm_fcm, 30))
+cnn_features = names(topfeatures(cnn_tfidf_dfm_fcm, 30))
+
+# Second, plot the co-occurrences between the top features:
+fcm_select(fox_tfidf_dfm_fcm, pattern = features) %>%
+  textplot_network()
+fcm_select(cnn_tfidf_dfm_fcm, pattern = cnn_features) %>%
+  textplot_network()
+
+topfeatures(fox_tfidf_dfm_fcm, 1)
+topfeatures(cnn_tfidf_dfm_fcm, 1)
+```
+##Zipf Law
+```{r}
+# For fox 
+fox_freqs = colSums(fox_tfidf_dfm_fcm)
+
+# Crate a vocabulary vector:
+fox_words = colnames(fox_tfidf_dfm_fcm)
+
+# Create a data frame that includes the words in the vocabulary and their frequencies:
+fox_wordlist = data.frame(fox_words, fox_freqs)
+
+# Re-order the wordlist by decreasing frequency
+fox_wordlist = fox_wordlist[order(fox_wordlist[ ,"fox_freqs"], decreasing = TRUE), ]
+
+# What are the 10 most frequent words?
+head(fox_wordlist, 10)
+
+# Plot the distribution. Does it look Zipfian?
+plot(fox_wordlist$fox_freqs , type = "l", lwd=2, main = "Rank frequency Plot", xlab="Rank", ylab ="Frequency")
+
+# Plot the logged distribution. Does it look like a line with slope -1? 
+plot(fox_wordlist$fox_freqs , type = "l", log="xy", lwd=2, main = "Rank frequency Plot (Logged)", xlab="log-Rank", ylab ="log-Frequency")
+```
+
+
+```{r}
+#For CNN
+cnn_freqs = colSums(cnn_tfidf_dfm_fcm)
+
+# Crate a vocabulary vector:
+cnn_words = colnames(cnn_tfidf_dfm_fcm)
+
+# Create a data frame that includes the words in the vocabulary and their frequencies:
+cnn_wordlist = data.frame(cnn_words, cnn_freqs)
+
+# Re-order the wordlist by decreasing frequency
+cnn_wordlist = cnn_wordlist[order(cnn_wordlist[ ,"fox_freqs"], decreasing = TRUE), ]
+
+# What are the 10 most frequent words?
+head(cnn_wordlist, 10)
+
+# Plot the distribution. Does it look Zipfian?
+plot(cnn_wordlist$cnn_freqs , type = "l", lwd=2, main = "Rank frequency Plot", xlab="Rank", ylab ="Frequency")
+
+# Plot the logged distribution. Does it look like a line with slope -1? 
+plot(cnn_wordlist$cnn_freqs , type = "l", log="xy", lwd=2, main = "Rank frequency Plot (Logged)", xlab="log-Rank", ylab ="log-Frequency")
+```
+
+
+# Web Scrapping 
+
+```{r}
+## How many paragraphs of text does the page have?
+paragraphs <- read_html("https://en.wikipedia.org/wiki/January_6_United_States_Capitol_attack") %>%
+  html_nodes("p") %>%
+  html_text(trim=T) %>%
+  str_squish
+
+length(paragraphs)
+
+```
+
+```{r}
+## Create a corpus: using "paragraphs"? 
+
+capitol_attack_corpus = corpus(paragraphs)
+
+## Preprocess the text using ngrams:
+capitol_attack_toks = tokens(capitol_attack_corpus, remove_numbers = TRUE, 
+                        remove_punct = TRUE, remove_url = TRUE,
+                        remove_symbols = TRUE) %>% 
+  tokens_wordstem(language = "en") %>% 
+  tokens_select(pattern = stopwords('en'), selection = 'remove') %>%
+  tokens_ngrams(n=3)
+
+## Create a dfm:
+capitol_attack_dfm = dfm(capitol_attack_toks)
+
+## Take a look at the DFM:
+capitol_attack_dfm
+
+## What are the top features?
+topfeatures(capitol_attack_dfm)
+
+# Identify top features
+top_features <- topfeatures(capitol_attack_dfm, n = 5)  
+print(top_features)
+
+```
+
+
+```{r}
+# Create a corpus
+capitol_attack_corpus2 <- corpus(paragraphs)
+
+# Preprocess the text and create a dfm 
+capitol_attack_dfm2 <- capitol_attack_corpus2 %>%
+  tokens(remove_numbers = TRUE, remove_punct = TRUE, remove_symbols = TRUE, remove_url = TRUE) %>%
+  tokens_wordstem(language = "en") %>%
+  tokens_remove(stopwords("en")) %>%
+  dfm()
+
+# Identify top features
+top_features2 <- topfeatures(capitol_attack_dfm2, n = 5)  
+print(top_features2)
+
+```
+
+
+```{r}
+#How many images are there?
+
+image <- read_html("https://en.wikipedia.org/wiki/January_6_United_States_Capitol_attack") %>%
+  html_nodes("img") %>%
+  html_attr("src") %>%
+  str_squish
+
+length(image)
+```
+
+```{r}
+
+#Create a single document of text from the Wikipedia page
+
+combined_text <- paste(paragraphs, collapse = "\n\n")
+
+#Create a DFM from the Wikipedia text
+
+# dimensions of the Wikipedia DFM
+# tokenization // using individual words 
+
+wiki_tokens = tokens(combined_text)
+class(wiki_tokens)
+
+## Remove punctuation, numbers, urls, and symbols:
+wiki_tokens_cleaned = tokens(x=wiki_tokens, remove_numbers = TRUE, 
+                            remove_punct = TRUE, remove_url = TRUE,
+                            remove_symbols = TRUE)
+#print(wiki_tokens_cleaned[["text600"]])
+
+
+## Lowercase all letters:
+wiki_tokens_cleaned_lc = tokens_tolower(wiki_tokens_cleaned)
+
+## Stem the tweets
+wiki_tokens_cleaned_stemmed = tokens_wordstem(wiki_tokens_cleaned_lc, language = "en")
+
+## Remove stop words
+wiki_tokens_cleaned_stemmed_nostop = tokens_select(wiki_tokens_cleaned_stemmed , pattern = stopwords('en'), selection = 'remove')
+
+## create a DTM (DFM) in which the words are pre-processed:
+wiki_dfm = dfm(wiki_tokens_cleaned_stemmed_nostop)
+
+## How many documents? How many features (words)?
+wiki_dfm
+nrow(wiki_dfm)
+ncol(wiki_dfm)
+
+## We can explore the DTM to examine the distribution of word counts:
+summary(colSums(wiki_dfm))
+quantile(colSums(wiki_dfm))
+
+dim(wiki_dfm)
+
+wiki_tfidf_dfm <- dfm_tfidf(wiki_dfm)
+dim(wiki_tfidf_dfm)
+
+## The textstat_simil() function in quanteda computes the similarity between documents
+cosine_similarities = textstat_simil(x = tfidf_dfm, y = wiki_tfidf_dfm, method = "cosine", margin = "documents")
+
+# What is the dimension of the output?
+dim(cosine_similarities)
+
+cosine_similarities_cnn = textstat_simil(x = cnn_tfidf_dfm, y = wiki_tfidf_dfm, method = "cosine", margin = "documents")
+
+dim(cosine_similarities_cnn)
+
+cosine_similarities_fox = textstat_simil(x = fox_tfidf_dfm, y = wiki_tfidf_dfm, method = "cosine", margin = "documents")
+
+dim(cosine_similarities_fox)
+```
