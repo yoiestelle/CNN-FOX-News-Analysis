@@ -8,4 +8,4 @@ This repository is dedicated to text analysis tasks that delve into the coverage
 ## Key Findings
 Our analyses have yielded a variety of insights, encapsulated notably in the word cloud derived from the Document Feature Matrix (DFM) with TF-IDF weighting. This visual representation underscores the prevalence of specific terms within the corpus of news scripts, highlighting the most frequently discussed names and topics within the context of the January 6th event.
 
-![Word Cloud](results/wordcloud.png)
+![Word Cloud](results:wordcloud.png)
